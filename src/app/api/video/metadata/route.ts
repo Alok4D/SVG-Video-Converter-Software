@@ -123,11 +123,13 @@ function getEnvKey(key: string): string {
 export async function POST(request: NextRequest) {
   let presetName = "Custom SVG";
   let svgCode = "";
+  let frameImage = "";
 
   try {
     const body = await request.json();
     presetName = body.presetName || "Custom SVG";
     svgCode = body.svgCode || "";
+    frameImage = body.frameImage || "";
   } catch (e) {}
 
   try {
@@ -136,16 +138,15 @@ export async function POST(request: NextRequest) {
     const geminiKey = getEnvKey("GEMINI_API_KEY");
 
     const systemPrompt = `You are a Senior Adobe Stock Video SEO Specialist and Keywording Expert.
-Analyze the following SVG animation code and preset name to generate 100% compliant, high-ranking Adobe Stock metadata.
+Analyze the provided video frame image and SVG animation details to generate 100% compliant, high-ranking Adobe Stock metadata.
 
 INPUT DETAILS:
 Preset Name: ${presetName}
-SVG Code:
-${svgCode.slice(0, 3000)}
+${svgCode ? `SVG Code:\n${svgCode.slice(0, 3000)}` : ""}
 
 ADOBE STOCK TITLE RULES:
 1. Concise, factual, and buyer-targeted title (Strictly 50 - 70 characters).
-2. Start directly with the main visual subject (e.g. "Good Better Best Infographic Chart Loop", "World Map Global Network Data Transmission").
+2. Start directly with the main visual subject visible in the frame (e.g. "Good Better Best Infographic Chart Loop", "World Map Global Network Data Transmission").
 3. Include visual motion, primary colors, and commercial theme.
 4. NO subjective quality buzzwords ("amazing", "stunning", "beautiful", "high quality", "best seller").
 5. NO brand names or trademarked terms.
@@ -154,7 +155,7 @@ ADOBE STOCK TITLE RULES:
 ADOBE STOCK KEYWORD RULES:
 1. Return exactly 35 to 40 unique, comma-separated keywords ordered strictly by relevance.
 2. The FIRST 10 KEYWORDS are the most important for Adobe Stock search algorithm ranking:
-   - Keywords 1-5: Exact visual subjects & text words found in the SVG (e.g. "good", "better", "best", "infographic", "performance curve").
+   - Keywords 1-5: Exact visual subjects, colors, objects & text words seen in the video frame.
    - Keywords 6-10: Motion type & visual style (e.g. "vector motion", "animated chart", "seamless loop").
    - Keywords 11-20: Colors, lighting, objects (e.g. "neon glow", "cyan", "magenta", "dark background").
    - Keywords 21-35: Commercial use-cases & industry categories (e.g. "business analytics", "data presentation", "motion graphics", "stock footage").
@@ -168,9 +169,17 @@ You MUST return ONLY a raw JSON object with no markdown formatting:
 
     let generatedText = "";
 
+    // Build Grok Message payload (Supports AI Vision if frameImage is present)
+    const grokMessageContent = frameImage && frameImage.startsWith("data:image")
+      ? [
+          { type: "text", text: systemPrompt },
+          { type: "image_url", image_url: { url: frameImage } }
+        ]
+      : [{ role: "user", content: systemPrompt }];
+
     if (grokKey) {
       const grokModel = getEnvKey("TEXT_MODEL_ADVANCED") || getEnvKey("TEXT_MODEL_BASIC") || "grok-3";
-      console.log(`[Metadata API] Generating using Grok API (${grokModel})...`);
+      console.log(`[Metadata API] Generating using Grok API (${grokModel}, Has Vision: ${Boolean(frameImage)})...`);
       try {
         let response = await fetch("https://api.x.ai/v1/chat/completions", {
           method: "POST",
@@ -180,7 +189,9 @@ You MUST return ONLY a raw JSON object with no markdown formatting:
           },
           body: JSON.stringify({
             model: grokModel,
-            messages: [{ role: "user", content: systemPrompt }],
+            messages: Array.isArray(grokMessageContent) && grokMessageContent[0]?.type
+              ? [{ role: "user", content: grokMessageContent }]
+              : [{ role: "user", content: systemPrompt }],
             response_format: { type: "json_object" },
             temperature: 0.2,
           }),
@@ -196,7 +207,9 @@ You MUST return ONLY a raw JSON object with no markdown formatting:
             },
             body: JSON.stringify({
               model: "grok-3-mini",
-              messages: [{ role: "user", content: systemPrompt }],
+              messages: Array.isArray(grokMessageContent) && grokMessageContent[0]?.type
+                ? [{ role: "user", content: grokMessageContent }]
+                : [{ role: "user", content: systemPrompt }],
               response_format: { type: "json_object" },
               temperature: 0.2,
             }),
@@ -225,7 +238,9 @@ You MUST return ONLY a raw JSON object with no markdown formatting:
           },
           body: JSON.stringify({
             model: "gpt-4o-mini",
-            messages: [{ role: "user", content: systemPrompt }],
+            messages: Array.isArray(grokMessageContent) && grokMessageContent[0]?.type
+              ? [{ role: "user", content: grokMessageContent }]
+              : [{ role: "user", content: systemPrompt }],
             response_format: { type: "json_object" },
             temperature: 0.2,
           }),
@@ -244,13 +259,26 @@ You MUST return ONLY a raw JSON object with no markdown formatting:
     if (!generatedText && geminiKey && !geminiKey.includes("placeholder")) {
       console.log("[Metadata API] Generating using Gemini API...");
       try {
+        const geminiParts: any[] = [{ text: systemPrompt }];
+        if (frameImage && frameImage.startsWith("data:image")) {
+          const mimeMatch = frameImage.match(/^data:(image\/[a-zA-Z]+);base64,/);
+          const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+          const base64Data = frameImage.replace(/^data:image\/[a-zA-Z]+;base64,/, "");
+          geminiParts.push({
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data,
+            },
+          });
+        }
+
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: systemPrompt }] }],
+              contents: [{ parts: geminiParts }],
               generationConfig: { responseMimeType: "application/json" },
             }),
           }

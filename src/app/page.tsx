@@ -379,6 +379,7 @@ export default function VideoConverterPage() {
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Listen for Escape key to close fullscreen preview
   useEffect(() => {
@@ -448,13 +449,9 @@ export default function VideoConverterPage() {
         setIsExporting(true);
         setGeneratedVideoUrl(null);
         setVideoDetails(null);
-        setProgressState({ stage: "Preparing local renderer...", progress: 5 });
+        setProgressState({ stage: "Preparing offline render engine...", progress: 5 });
 
-        const unsubscribe = window.electronAPI.onRenderProgress(({ progress, status }) => {
-          setProgressState({ stage: status, progress });
-        });
-
-        const renderRes = await window.electronAPI.renderVideoLocal({
+        const result = await window.electronAPI.renderVideo({
           svgCode,
           fps: parsedFps,
           duration: parsedDuration,
@@ -463,37 +460,25 @@ export default function VideoConverterPage() {
           codec,
         });
 
-        unsubscribe();
         setIsExporting(false);
         setProgressState(null);
 
-        if (renderRes.success && renderRes.outputPath) {
-          toast.success("Video Rendered Successfully!", {
-            description: `Rendered ${width}x${height} video ready for preview & download.`,
-          });
-
-          const filename = renderRes.outputPath.split(/[/\\]/).pop();
-          const videoUrl = `/uploads/${filename}`;
-          setGeneratedVideoUrl(videoUrl);
+        if (result.success && result.videoUrl) {
+          setGeneratedVideoUrl(result.videoUrl);
           setVideoDetails({
-            duration: parsedDuration,
-            fps: parsedFps,
-            width,
-            height,
-            fileSize: renderRes.fileSize || "Completed",
-            codec,
+            duration: result.duration,
+            fps: result.fps,
+            width: result.width,
+            height: result.height,
+            fileSize: result.fileSize,
+            codec: result.codec,
           });
 
-          const defaultMeta = DEFAULT_PRESET_METADATA[activePresetName] || {
-            title: `${activePresetName === "Custom SVG" ? "Custom" : activePresetName} SVG Animation Loop, Modern Graphic Design Vector Video`,
-            keywords: "custom svg, svg animation, vector motion, graphic design, abstract vector, loop animation, overlay, web animation, custom design"
-          };
-          setMetadataTitle(defaultMeta.title);
-          setMetadataKeywords(defaultMeta.keywords);
-        } else if (!renderRes.canceled) {
-          toast.error("Render Failed", {
-            description: renderRes.error || "Failed to render video locally.",
+          toast.success("Video Exported Successfully!", {
+            description: `Rendered ${result.width}x${result.height} video ready.`,
           });
+        } else {
+          throw new Error(result.error || "Export failed");
         }
       } catch (err: any) {
         setIsExporting(false);
@@ -632,7 +617,27 @@ export default function VideoConverterPage() {
 
   const handleGenerateAIMetadata = async () => {
     setIsGeneratingMetadata(true);
-    toast.loading("Generating optimized marketplace metadata...", { id: "meta-toast" });
+    toast.loading("Analyzing video frame with AI Vision...", { id: "meta-toast" });
+
+    let capturedFrameImage = "";
+
+    // Capture video frame from rendered video player if playing/ready
+    if (videoRef.current && videoRef.current.videoWidth > 0) {
+      try {
+        const v = videoRef.current;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(v.videoWidth || 1280, 1280);
+        canvas.height = Math.min(v.videoHeight || 720, 720);
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+          capturedFrameImage = canvas.toDataURL("image/jpeg", 0.85);
+        }
+      } catch (err) {
+        console.warn("Could not capture video element frame:", err);
+      }
+    }
+
     try {
       const response = await fetch("/api/video/metadata", {
         method: "POST",
@@ -642,6 +647,7 @@ export default function VideoConverterPage() {
         body: JSON.stringify({
           presetName: activePresetName,
           svgCode: svgCode,
+          frameImage: capturedFrameImage,
         }),
       });
 
@@ -654,12 +660,12 @@ export default function VideoConverterPage() {
       if (result.title) setMetadataTitle(result.title);
       if (result.keywords) setMetadataKeywords(result.keywords);
 
-      toast.success("AI Metadata Generated Successfully!", { id: "meta-toast" });
+      toast.success("AI Vision Metadata Generated!", { id: "meta-toast" });
     } catch (err: any) {
       console.error(err);
       toast.error("AI Metadata Generation Failed", {
         id: "meta-toast",
-        description: err.message || "Could not connect to Gemini API."
+        description: err.message || "Could not connect to AI Vision API."
       });
     } finally {
       setIsGeneratingMetadata(false);
@@ -886,6 +892,7 @@ export default function VideoConverterPage() {
                   </div>
                 ) : (
                   <video
+                    ref={videoRef}
                     src={generatedVideoUrl}
                     controls
                     autoPlay
