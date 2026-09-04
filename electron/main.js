@@ -419,6 +419,19 @@ ipcMain.handle('render-video-local', async (event, jobData) => {
   }
 });
 
+ipcMain.handle('render-video', async (event, jobData) => {
+  try {
+    console.log('[IPC] Starting local render job for:', jobData.codec || 'h264');
+    const result = await renderVideoLocal(jobData, ({ progress, status }) => {
+      event.sender.send('render-progress', { progress, status });
+    });
+    return result;
+  } catch (err) {
+    console.error('[IPC] Render error:', err);
+    return { success: false, error: err.message || 'Render failed' };
+  }
+});
+
 // IPC Handler: Cancel active video render
 ipcMain.handle('cancel-video-render', async () => {
   console.log('[IPC] Cancel render requested');

@@ -451,7 +451,16 @@ export default function VideoConverterPage() {
         setVideoDetails(null);
         setProgressState({ stage: "Preparing offline render engine...", progress: 5 });
 
-        const result = await window.electronAPI.renderVideo({
+        const renderFn = window.electronAPI.renderVideoLocal || window.electronAPI.renderVideo;
+        if (typeof renderFn !== "function") {
+          throw new Error("Electron local render function not found.");
+        }
+
+        const unsubscribe = window.electronAPI.onRenderProgress?.(({ progress, status }) => {
+          setProgressState({ stage: status, progress });
+        });
+
+        const result = await renderFn.call(window.electronAPI, {
           svgCode,
           fps: parsedFps,
           duration: parsedDuration,
@@ -460,22 +469,26 @@ export default function VideoConverterPage() {
           codec,
         });
 
+        if (typeof unsubscribe === "function") unsubscribe();
         setIsExporting(false);
         setProgressState(null);
 
-        if (result.success && result.videoUrl) {
-          setGeneratedVideoUrl(result.videoUrl);
+        if (result.success && (result.outputPath || result.videoUrl)) {
+          const outputPath = result.outputPath || result.videoUrl || "";
+          const filename = outputPath.split(/[/\\]/).pop();
+          const videoUrl = `/uploads/${filename}`;
+          setGeneratedVideoUrl(videoUrl);
           setVideoDetails({
-            duration: result.duration,
-            fps: result.fps,
-            width: result.width,
-            height: result.height,
-            fileSize: result.fileSize,
-            codec: result.codec,
+            duration: parsedDuration,
+            fps: parsedFps,
+            width,
+            height,
+            fileSize: result.fileSize || "Completed",
+            codec,
           });
 
           toast.success("Video Exported Successfully!", {
-            description: `Rendered ${result.width}x${result.height} video ready.`,
+            description: `Rendered ${width}x${height} video ready.`,
           });
         } else {
           throw new Error(result.error || "Export failed");

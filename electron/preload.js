@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
   selectSvgFile: () => ipcRenderer.invoke('select-svg-file'),
   selectSavePath: (defaultName) => ipcRenderer.invoke('select-save-path', defaultName),
+  renderVideo: (jobData) => ipcRenderer.invoke('render-video-local', jobData),
   renderVideoLocal: (jobData) => ipcRenderer.invoke('render-video-local', jobData),
   cancelVideoRender: () => ipcRenderer.invoke('cancel-video-render'),
   saveRenderedFile: (sourcePath, defaultName) => ipcRenderer.invoke('save-rendered-file', { sourcePath, defaultName }),
