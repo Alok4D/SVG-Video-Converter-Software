@@ -10,6 +10,9 @@ function extractSvgMetadata(presetName: string, svgCode: string) {
   // 2. Extract text words from <text> elements
   const textMatches = Array.from(svgCode.matchAll(/<text[^>]*>(.*?)<\/text>/gi));
   const rawTexts = textMatches.map(m => m[1].replace(/<[^>]+>/g, "").trim()).filter(Boolean);
+  
+  // Filter out pure numbers for title text description
+  const nonNumericTexts = rawTexts.filter(t => !/^\d+(?:\s*\d+)*$/.test(t));
   const textWords = Array.from(new Set(rawTexts.join(" ").split(/[\s,._\-]+/))).filter(w => w.length > 2);
 
   // 3. Extract id and class words
@@ -30,8 +33,8 @@ function extractSvgMetadata(presetName: string, svgCode: string) {
     lowerCode.includes("bar-group") || lowerCode.includes("risebar") || lowerCode.includes("grow") || lowerCode.includes("good")
   ) {
     category = "Infographic Chart & Performance";
-    const textDesc = rawTexts.length > 0 ? rawTexts.slice(0, 3).join(" ") : "Performance Growth";
-    specificTitle = `${textDesc} Infographic Performance Growth Vector Motion Loop`;
+    const textDesc = nonNumericTexts.length > 0 ? nonNumericTexts.slice(0, 3).join(" ") : "Performance Growth Chart";
+    specificTitle = `${textDesc} Infographic Comparison Vector Motion Loop`;
     
     ["infographic", "performance curve", "growth chart", "comparison", "step by step", "business analytics", "data visualization", "vector motion", "corporate presentation", "progress tracking", "good better best", "visual overlay", "seamless loop", "chart animation", "kpi report", "financial growth"].forEach(k => keywordsSet.add(k));
   }
@@ -146,6 +149,7 @@ ADOBE STOCK TITLE RULES:
 3. Include visual motion, primary colors, and commercial theme.
 4. NO subjective quality buzzwords ("amazing", "stunning", "beautiful", "high quality", "best seller").
 5. NO brand names or trademarked terms.
+6. NEVER start the title with standalone numbers or raw data values (e.g. "100 75 50"). Describe the visual subject instead (e.g. "Bar Chart Comparison Infographic").
 
 ADOBE STOCK KEYWORD RULES:
 1. Return exactly 35 to 40 unique, comma-separated keywords ordered strictly by relevance.
